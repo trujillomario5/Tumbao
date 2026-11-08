@@ -565,15 +565,17 @@ function noiseBuf(ctx){if(ctx._nb)return ctx._nb;const len=ctx.sampleRate*2,b=ct
 function makeImpulse(ctx,sec,decay){const len=Math.floor(ctx.sampleRate*sec),b=ctx.createBuffer(2,len,ctx.sampleRate);for(let c=0;c<2;c++){const d=b.getChannelData(c);for(let i=0;i<len;i++)d[i]=(Math.random()*2-1)*Math.pow(1-i/len,decay);}return b;}
 function buildEngine(ctx,dest){
   const e={ctx};
-  e.out=ctx.createGain(); e.out.gain.value=.9;
-  const comp=ctx.createDynamicsCompressor(); comp.threshold.value=-16; comp.ratio.value=4; comp.attack.value=.005; comp.release.value=.2;
-  e.master=ctx.createGain(); e.master.gain.value=.45;
-  e.master.connect(comp); comp.connect(e.out);
+  e.out=ctx.createGain(); e.out.gain.value=.85;
+  const hp=ctx.createBiquadFilter(); hp.type='highpass'; hp.frequency.value=38; hp.Q.value=.6;
+  const comp=ctx.createDynamicsCompressor(); comp.threshold.value=-20; comp.knee.value=8; comp.ratio.value=2.5; comp.attack.value=.012; comp.release.value=.25;
+  const lim=ctx.createDynamicsCompressor(); lim.threshold.value=-4; lim.knee.value=0; lim.ratio.value=20; lim.attack.value=.001; lim.release.value=.08;
+  e.master=ctx.createGain(); e.master.gain.value=.3;
+  e.master.connect(hp); hp.connect(comp); comp.connect(lim); lim.connect(e.out);
   e.analyser=ctx.createAnalyser(); e.analyser.fftSize=256; e.analyser.smoothingTimeConstant=.75;
   e.out.connect(e.analyser); e.out.connect(dest);
-  e.rev=ctx.createConvolver(); e.rev.buffer=makeImpulse(ctx,2.2,2.6); const rg=ctx.createGain(); rg.gain.value=.5; e.rev.connect(rg); rg.connect(e.master);
+  e.rev=ctx.createConvolver(); e.rev.buffer=makeImpulse(ctx,1.6,3.2); const rg=ctx.createGain(); rg.gain.value=.22; e.rev.connect(rg); rg.connect(e.master);
   const bus=(gain,send)=>{const g=ctx.createGain();g.gain.value=gain;g.connect(e.master);if(send){const s=ctx.createGain();s.gain.value=send;g.connect(s);s.connect(e.rev);}return g;};
-  e.drums=bus(1,.06); e.music=bus(1,.14); e.voice=bus(1.25,.28); e.lead=bus(.9,.22);
+  e.drums=bus(.9,.03); e.music=bus(.75,.1); e.voice=bus(.8,.2); e.lead=bus(.6,.15);
   e.shaper=k=>{const n=1024,c=new Float32Array(n);for(let i=0;i<n;i++){const x=i*2/n-1;c[i]=(1+k)*x/(1+k*Math.abs(x));}return c;};
   return e;
 }
@@ -608,23 +610,23 @@ const INS={
   shaker(e,t,o){const c=e.ctx;noiseSrc(c,t,.08,filt(c,'highpass',5200,.7,envG(c,t,.004,o.v*.3,.05,e.drums)));},
   bass(e,t,o){const c=e.ctx,f=mtof(o.m),g=holdG(c,t,.008,o.v*.55,Math.min(o.dur,.9)*.9,.06,e.music),lp=filt(c,'lowpass',750,1,g);
     const end=t+o.dur+.1;osc(c,'triangle',f,t,end,lp);osc(c,'sine',f,t,end,lp);},
-  b808(e,t,o){const c=e.ctx,f=mtof(o.m),dur=Math.min(o.dur,1.6),g=envG(c,t,.004,o.v*.75,dur+.2,e.music),sh=c.createWaveShaper();sh.curve=e.shaper(2.5);sh.connect(g);
+  b808(e,t,o){const c=e.ctx,f=mtof(o.m),dur=Math.min(o.dur,1.6),g=envG(c,t,.004,o.v*.75,dur+.2,e.music),sh=c.createWaveShaper();sh.curve=e.shaper(.8);sh.connect(g);
     const s=osc(c,'sine',f*1.25,t,t+dur+.3,sh);s.frequency.exponentialRampToValueAtTime(f,t+.06);},
   log(e,t,o){const c=e.ctx,f=mtof(o.m+12),g=envG(c,t,.002,o.v*.6,.3,e.music),lp=filt(c,'lowpass',900,2,g);const s=osc(c,'sine',f*1.6,t,t+.4,lp);s.frequency.exponentialRampToValueAtTime(f,t+.03);osc(c,'triangle',f,t,t+.35,lp);},
   piano(e,t,o){const c=e.ctx,lp=filt(c,'lowpass',2800,.5,e.music);[].concat(o.m).forEach(m=>{const f=mtof(m),g=envG(c,t,.004,o.v*.22,.9,lp);osc(c,'triangle',f,t,t+1,g);osc(c,'sine',f*2,t,t+.6,envG(c,t,.003,o.v*.06,.4,lp));});},
-  pluck(e,t,o){const c=e.ctx;[].concat(o.m).forEach(m=>{const f=mtof(m),g=envG(c,t,.003,o.v*.24,.35,e.music),lp=filt(c,'lowpass',4200,2,g);lp.frequency.setValueAtTime(4200,t);lp.frequency.exponentialRampToValueAtTime(480,t+.18);osc(c,'sawtooth',f,t,t+.4,lp);});},
-  tres(e,t,o){const c=e.ctx;[].concat(o.m).forEach(m=>{const f=mtof(m+12),g=envG(c,t,.002,o.v*.22,.3,e.music),lp=filt(c,'lowpass',3500,3,g);lp.frequency.exponentialRampToValueAtTime(900,t+.2);osc(c,'sawtooth',f,t,t+.35,lp);osc(c,'sawtooth',f*1.004,t,t+.35,lp);});},
+  pluck(e,t,o){const c=e.ctx;[].concat(o.m).forEach(m=>{const f=mtof(m),g=envG(c,t,.003,o.v*.24,.35,e.music),lp=filt(c,'lowpass',3200,.7,g);lp.frequency.setValueAtTime(3200,t);lp.frequency.exponentialRampToValueAtTime(600,t+.18);osc(c,'sawtooth',f,t,t+.4,lp);});},
+  tres(e,t,o){const c=e.ctx;[].concat(o.m).forEach(m=>{const f=mtof(m+12),g=envG(c,t,.002,o.v*.22,.3,e.music),lp=filt(c,'lowpass',3000,.8,g);lp.frequency.exponentialRampToValueAtTime(900,t+.2);osc(c,'sawtooth',f,t,t+.35,lp);osc(c,'sawtooth',f*1.004,t,t+.35,lp);});},
   nylon(e,t,o){const c=e.ctx;[].concat(o.m).forEach((m,k)=>{const tt=t+k*.012,f=mtof(m),g=envG(c,tt,.003,o.v*.26,.65,e.music),lp=filt(c,'lowpass',2600,1,g);lp.frequency.setValueAtTime(2600,tt);lp.frequency.exponentialRampToValueAtTime(700,tt+.4);osc(c,'triangle',f,tt,tt+.75,lp);osc(c,'sawtooth',f,tt,tt+.2,envG(c,tt,.002,o.v*.05,.12,lp));});},
-  pad(e,t,o){const c=e.ctx,dur=Math.max(o.dur,.5);[].concat(o.m).forEach(m=>{const f=mtof(m),g=holdG(c,t,.35,o.v*.07,dur,.5,e.music),lp=filt(c,'lowpass',1300,.5,g);osc(c,'sawtooth',f,t,t+dur+.6,lp).detune.value=-8;osc(c,'sawtooth',f,t,t+dur+.6,lp).detune.value=8;});},
+  pad(e,t,o){const c=e.ctx,dur=Math.max(o.dur,.5);[].concat(o.m).forEach(m=>{const f=mtof(m),g=holdG(c,t,.35,o.v*.07,dur,.5,e.music),lp=filt(c,'lowpass',1000,.5,g);osc(c,'sawtooth',f,t,t+dur+.6,lp).detune.value=-8;osc(c,'sawtooth',f,t,t+dur+.6,lp).detune.value=8;});},
   accordion(e,t,o){const c=e.ctx,dur=Math.max(o.dur,.08);const trem=c.createOscillator(),tg=c.createGain();trem.frequency.value=6;tg.gain.value=.25;trem.connect(tg);
-    [].concat(o.m).forEach(m=>{const f=mtof(m),g=holdG(c,t,.025,o.v*.12,dur,.07,e[o.bus||'music']),pk=filt(c,'peaking',1400,1,g);pk.gain.value=6;const lp=filt(c,'lowpass',2600,.7,pk);tg.connect(g.gain);
+    [].concat(o.m).forEach(m=>{const f=mtof(m),g=holdG(c,t,.025,o.v*.12,dur,.07,e[o.bus||'music']),pk=filt(c,'peaking',1300,.8,g);pk.gain.value=2;const lp=filt(c,'lowpass',2000,.5,pk);tg.connect(g.gain);
       osc(c,'sawtooth',f,t,t+dur+.1,lp).detune.value=-7;osc(c,'sawtooth',f,t,t+dur+.1,lp).detune.value=7;osc(c,'square',f/2,t,t+dur+.1,envG(c,t,.02,o.v*.03,dur,lp));});
     trem.start(t);trem.stop(t+dur+.12);},
-  brass(e,t,o){const c=e.ctx,dur=Math.max(o.dur,.08);[].concat(o.m).forEach(m=>{const f=mtof(m),g=holdG(c,t,.03,o.v*.16,dur,.08,e[o.bus||'music']),lp=filt(c,'lowpass',500,1.5,g);
-      lp.frequency.setValueAtTime(500,t);lp.frequency.exponentialRampToValueAtTime(2800,t+.06);lp.frequency.exponentialRampToValueAtTime(1700,t+.25);
+  brass(e,t,o){const c=e.ctx,dur=Math.max(o.dur,.08);[].concat(o.m).forEach(m=>{const f=mtof(m),g=holdG(c,t,.03,o.v*.16,dur,.08,e[o.bus||'music']),lp=filt(c,'lowpass',500,.7,g);
+      lp.frequency.setValueAtTime(500,t);lp.frequency.exponentialRampToValueAtTime(2200,t+.06);lp.frequency.exponentialRampToValueAtTime(1300,t+.25);
       const s=osc(c,'sawtooth',f*.97,t,t+dur+.1,lp);s.frequency.exponentialRampToValueAtTime(f,t+.05);osc(c,'sawtooth',f,t,t+dur+.1,lp).detune.value=6;});},
-  dist(e,t,o){const c=e.ctx,dur=Math.max(o.dur*.9,.06),root=[].concat(o.m)[0],sh=c.createWaveShaper();sh.curve=e.shaper(40);
-    const g=holdG(c,t,.004,o.v*.18,dur,.05,e[o.bus||'music']),lp=filt(c,'lowpass',3200,.7,g);sh.connect(lp);
+  dist(e,t,o){const c=e.ctx,dur=Math.max(o.dur*.9,.06),root=[].concat(o.m)[0],sh=c.createWaveShaper();sh.curve=e.shaper(12);
+    const g=holdG(c,t,.004,o.v*.18,dur,.05,e[o.bus||'music']),lp=filt(c,'lowpass',2400,.5,g);sh.connect(lp);
     (o.single?[root]:[root,root+7,root+12]).forEach(m=>osc(c,'sawtooth',mtof(m),t,t+dur+.1,sh));},
   organ(e,t,o){const c=e.ctx;[].concat(o.m).forEach(m=>{const f=mtof(m),g=envG(c,t,.004,o.v*.14,.14,e[o.bus||'music']);osc(c,'sine',f,t,t+.25,g);osc(c,'sine',f*2,t,t+.25,g);osc(c,'sine',f*3,t,t+.25,g);});},
   bell(e,t,o){const c=e.ctx;[].concat(o.m).forEach(m=>{const f=mtof(m+12),g=envG(c,t,.002,o.v*.22,1.1,e[o.bus||'music']),car=osc(c,'sine',f,t,t+1.3,g),mod=c.createOscillator(),mg=c.createGain();
@@ -640,13 +642,14 @@ function sing(e,t,ev,dur,female){
   const g=c.createGain();g.connect(e.voice);
   g.gain.setValueAtTime(0,vt);g.gain.linearRampToValueAtTime(.55,vt+(liquid?.06:.025));g.gain.setValueAtTime(.5,Math.max(vt+.06,end-.06));g.gain.linearRampToValueAtTime(0,end);
   const src=c.createOscillator();src.type='sawtooth';src.frequency.setValueAtTime(f*.975,vt);src.frequency.exponentialRampToValueAtTime(f,vt+.05);
-  const lfo=c.createOscillator(),lg=c.createGain();lfo.frequency.value=5.4;lg.gain.setValueAtTime(0,vt);lg.gain.linearRampToValueAtTime(f*.012,vt+Math.min(.35,dur));lfo.connect(lg);lg.connect(src.frequency);
-  const mix=c.createGain();mix.gain.value=1;const lp=filt(c,'lowpass',5200,.5,g);mix.connect(lp);
-  [[1,9],[.55,12],[.22,14]].forEach(([gain,q],k)=>{const b=c.createBiquadFilter();b.type='bandpass';b.frequency.value=F[k]*sh;b.Q.value=q;const bg=c.createGain();bg.gain.value=gain*4;src.connect(b);b.connect(bg);bg.connect(mix);});
-  const br=c.createGain();br.gain.value=.04;src.connect(br);br.connect(mix);
+  const lfo=c.createOscillator(),lg=c.createGain();lfo.frequency.value=5.4;lg.gain.setValueAtTime(0,vt);lg.gain.linearRampToValueAtTime(f*.008,vt+Math.min(.35,dur));lfo.connect(lg);lg.connect(src.frequency);
+  const mix=c.createGain();mix.gain.value=1;const lp=filt(c,'lowpass',3800,.5,g);mix.connect(lp);
+  const glot=c.createBiquadFilter();glot.type='lowpass';glot.frequency.value=Math.min(2600,f*7);glot.Q.value=.5;src.connect(glot);
+  [[1,5],[.45,7],[.15,8]].forEach(([gain,q],k)=>{const b=c.createBiquadFilter();b.type='bandpass';b.frequency.value=F[k]*sh;b.Q.value=q;const bg=c.createGain();bg.gain.value=gain*2.2;glot.connect(b);b.connect(bg);bg.connect(mix);});
+  const br=c.createGain();br.gain.value=.12;glot.connect(br);br.connect(mix);
   src.start(vt);src.stop(end+.05);lfo.start(vt);lfo.stop(end+.05);
-  if(fric)noiseSrc(c,t,.05,filt(c,'highpass',on==='j'?2500:5000,.7,envG(c,t,.005,.18,.04,e.voice)));
-  else if(stop)noiseSrc(c,t,.02,filt(c,'bandpass',1800,1,envG(c,t,.001,.12,.015,e.voice)));
+  if(fric)noiseSrc(c,t,.05,filt(c,'highpass',on==='j'?2500:5000,.7,envG(c,t,.005,.08,.04,e.voice)));
+  else if(stop)noiseSrc(c,t,.02,filt(c,'bandpass',1800,1,envG(c,t,.001,.05,.015,e.voice)));
 }
 
 /* programa un paso (semicorchea) de la canción */
