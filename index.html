@@ -105,6 +105,19 @@ canvas.viz{width:100%;height:110px;display:block}
 .stage-actions{display:flex;flex-wrap:wrap;gap:8px}
 .stage .btn{background:transparent;color:var(--stage-ink);border-color:var(--stage-line)}
 .stage .btn:hover{border-color:var(--stage-ink)}
+.ia{border-top:1px solid var(--stage-line);padding-top:16px;display:flex;flex-direction:column;gap:10px}
+.ia h4{margin:0;font-family:var(--f-display);font-size:18px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.ia h4 small{font-family:var(--f-mono);font-size:10.5px;font-weight:400;letter-spacing:.06em;text-transform:uppercase;color:var(--sun);border:1px solid var(--sun);border-radius:99px;padding:2px 8px}
+.ia p{margin:0;font-size:13px;color:var(--stage-muted)}
+.ia .row select,.ia input{background:transparent;color:var(--stage-ink);border-color:var(--stage-line)}
+.ia .row select option{color:#17173A}
+.ia .btn.go{background:var(--sun);color:#17173A;border-color:var(--sun)}
+.ia .btn.go:disabled{opacity:.6;cursor:wait}
+.ia audio{width:100%}
+.ia details summary{cursor:pointer;font-size:12.5px;color:var(--stage-muted)}
+.ia details .field{margin-top:8px}
+.ia .status{font-size:13px;color:var(--sun);min-height:18px}
+.ia a{color:var(--sun)}
 .note{font-size:12.5px;color:var(--stage-muted);margin:0}
 .toast{min-height:18px;font-size:12.5px;color:var(--sun);margin:0}
 section.about{margin-top:56px;border-top:1px solid var(--line);padding-top:26px;display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:24px}
@@ -214,6 +227,26 @@ section.about code{font-family:var(--f-mono);font-size:12.5px}
         <button class="btn" id="btnWav" type="button" hidden>Descargar WAV</button>
       </div>
       <p class="toast" id="toast" role="status"></p>
+      <div class="ia" id="ia">
+        <h4>Cantante de IA <small>voz real · gratis</small></h4>
+        <p>Envía tu letra y el estilo del género a ACE-Step, un modelo abierto que canta en español. Corre gratis en Hugging Face, con fila de espera y un límite de uso diario.</p>
+        <div class="row">
+          <div class="field" style="flex:0 1 150px">
+            <label for="iaDur" style="color:var(--stage-muted)">Duración</label>
+            <select id="iaDur"><option value="45">45 segundos</option><option value="60" selected>1 minuto</option><option value="90">1 min 30 s</option><option value="120">2 minutos</option></select>
+          </div>
+          <button class="btn go" id="btnIA" type="button">♪ Cantar con IA</button>
+        </div>
+        <div class="status" id="iaStatus" role="status"></div>
+        <audio id="iaAudio" controls hidden></audio>
+        <a id="iaLink" href="#" target="_blank" rel="noopener" hidden>Abrir o descargar la canción</a>
+        <details>
+          <summary>Opciones avanzadas</summary>
+          <div class="field"><label for="iaSpace" style="color:var(--stage-muted)">Espacio de Hugging Face</label><input id="iaSpace" type="text" value="ACE-Step/ACE-Step"></div>
+          <div class="field"><label for="iaToken" style="color:var(--stage-muted)">Token de Hugging Face (opcional, da más uso gratis)</label><input id="iaToken" type="text" placeholder="hf_..." autocomplete="off"></div>
+          <p>Crea una cuenta gratis en huggingface.co y genera un token en Settings → Access Tokens. Se guarda solo en este navegador.</p>
+        </details>
+      </div>
       <p class="note">“Copiar letra y estilo” prepara el texto con etiquetas para modelos abiertos de canto con IA, como ACE-Step o YuE, si quieres una voz realista.</p>
     </aside>
   </div>
@@ -772,6 +805,61 @@ function wavBlob(buf){
   return new Blob([data],{type:'audio/wav'});
 }
 
+/* ---------- cantante de IA (ACE-Step vía Hugging Face) ---------- */
+const GRADIO_URL='https://cdn.jsdelivr.net/npm/@gradio/client@2.6.0/dist/browser.js';
+let gradioMod=null;
+function findAudio(x,depth){depth=depth||0;if(!x||depth>6)return null;
+  if(typeof x==='string')return /^https?:.*\.(wav|mp3|flac|ogg|m4a)(\?|$)/i.test(x)?x:null;
+  if(Array.isArray(x)){for(const y of x){const r=findAudio(y,depth+1);if(r)return r;}return null;}
+  if(typeof x==='object'){if(x.url&&(/audio/.test(x.mime_type||'')||/\.(wav|mp3|flac|ogg|m4a)/i.test(x.path||x.orig_name||x.url)))return x.url;
+    for(const k in x){const r=findAudio(x[k],depth+1);if(r)return r;}}
+  return null;}
+function iaLyrics(){const map={coro:'chorus',verso:'verse',puente:'bridge',intro:'intro',outro:'outro'};
+  return parseLetra($('#letra').value).map(s=>'['+map[s.kind]+']\n'+s.lines.join('\n')).join('\n\n');}
+function iaTags(){const g=state.genre;return g.tags+', spanish lyrics, latin, '+(state.voice==='grave'?'male vocal':'female vocal')+', clear vocals, '+Math.round(g.bpm*state.tempo)+' bpm';}
+async function cantarIA(){
+  const st=$('#iaStatus'),btn=$('#btnIA'),au=$('#iaAudio'),ln=$('#iaLink');
+  const lyrics=iaLyrics(); if(!lyrics){st.textContent='Primero escribe o genera una letra.';return;}
+  if(state.embedded){st.innerHTML='';st.append('Dentro de este visor no se puede conectar con Hugging Face. Ábrelo desde tu página: ');const a=document.createElement('a');a.href='https://trujillomario5.github.io/Tumbao/';a.target='_blank';a.rel='noopener';a.textContent='trujillomario5.github.io/Tumbao';st.append(a);return;}
+  btn.disabled=true; au.hidden=true; ln.hidden=true; if(P.playing)stop();
+  try{
+    st.textContent='Conectando con el cantante de IA…';
+    if(!gradioMod) gradioMod=await import(GRADIO_URL);
+    const space=($('#iaSpace').value||'').trim()||'ACE-Step/ACE-Step', tok=($('#iaToken').value||'').trim();
+    try{localStorage.setItem('tumbao_ia',JSON.stringify({space,tok}));}catch(_){}
+    const client=await gradioMod.Client.connect(space,tok?{hf_token:tok}:{});
+    const api=await client.view_api();
+    const eps=Object.entries(api.named_endpoints||{});
+    const pn=p=>String(p.parameter_name||p.label||'').toLowerCase();
+    const score=([name,ep])=>{const ps=(ep.parameters||[]).map(pn);let s=0;if(ps.some(n=>n.includes('lyric')))s+=3;if(ps.some(n=>/prompt|tag|caption|style/.test(n)))s+=2;if(/text2music|generate|music/i.test(name))s+=1;if(/retake|repaint|edit|extend|lora|sample/i.test(name))s-=2;return s;};
+    eps.sort((a,b)=>score(b)-score(a));
+    if(!eps.length||score(eps[0])<3) throw new Error('Este espacio no tiene una función para cantar letras. Revisa el nombre en Opciones avanzadas.');
+    const [name,ep]=eps[0], dur=+$('#iaDur').value, args={};
+    ep.parameters.forEach(p=>{const k=p.parameter_name;if(!k)return;const n=k.toLowerCase();
+      if(n.includes('lyric')&&!/neg|guidance|scale|erg/.test(n))args[k]=lyrics;
+      else if(/prompt|tag|caption|style/.test(n)&&!/neg|guidance|scale|erg|seed/.test(n))args[k]=iaTags();
+      else if(/duration/.test(n)&&!/interval/.test(n))args[k]=dur;
+      else if(!p.parameter_has_default&&p.example_input!==undefined)args[k]=p.example_input;});
+    st.textContent='En la fila de Hugging Face…';
+    let data=null;
+    for await(const m of client.submit(name,args)){
+      if(m.type==='status'){
+        if(m.stage==='error'){const msg=Array.isArray(m.message)?m.message.map(x=>x.message||'').join(' '):(m.message||m.title||'');throw new Error(msg||'El servidor devolvió un error.');}
+        if(m.stage==='pending'&&typeof m.position==='number')st.textContent='En la fila: puesto '+(m.position+1)+(m.eta?' · unos '+Math.round(m.eta)+' s':'')+'…';
+        else if(m.stage==='generating'||m.stage==='pending'){const pd=m.progress_data&&m.progress_data[0];st.textContent='Cantando tu canción…'+(pd&&pd.index!=null&&pd.length?' '+Math.round(pd.index/pd.length*100)+' %':'');}
+      }
+      if(m.type==='data'){data=m.data;break;}
+    }
+    const url=findAudio(data); if(!url) throw new Error('El modelo terminó pero no devolvió audio.');
+    au.src=url; au.hidden=false; ln.href=url; ln.hidden=false; st.textContent='¡Lista! Dale play.'; try{au.play();}catch(_){}
+  }catch(err){
+    const m=String(err&&err.message||err);
+    st.textContent=/quota|zerogpu|gpu.*limit|exceeded/i.test(m)?'Se acabó el uso gratis de hoy en Hugging Face. Agrega un token gratuito en Opciones avanzadas o inténtalo más tarde.'
+      :/fetch|network|load|import/i.test(m)?'No se pudo conectar con Hugging Face ('+m+'). Revisa tu internet e inténtalo de nuevo.'
+      :'No se pudo cantar: '+m;
+  }finally{btn.disabled=false;}
+}
+
 /* ---------- interfaz ---------- */
 const $=s=>document.querySelector(s);
 const state={genre:GENRES[0],tema:'fiesta',voice:'narrada',tempo:1,seed:1,title:''};
@@ -860,6 +948,9 @@ function init(){
     const fallback=()=>{const ta=$('#letra');ta.focus();ta.select();toast('No se pudo copiar automáticamente; la letra quedó seleccionada.');};
     try{navigator.clipboard.writeText(txt).then(()=>toast('Copiado: letra con etiquetas y estilo del género.'),fallback);}catch(_){fallback();}});
   let embedded=true; try{embedded=window.self!==window.top;}catch(_){embedded=true;}
+  state.embedded=embedded;
+  $('#btnIA').addEventListener('click',cantarIA);
+  try{const c=JSON.parse(localStorage.getItem('tumbao_ia')||'null');if(c){if(c.space)$('#iaSpace').value=c.space;if(c.tok)$('#iaToken').value=c.tok;}}catch(_){}
   if(!embedded){const b=$('#btnWav');b.hidden=false;b.addEventListener('click',async()=>{
     if(state.voice==='narrada')toast('La voz clara del navegador no se puede grabar en el archivo; el WAV lleva el canto sintético.');
     b.disabled=true;b.textContent='Renderizando…';

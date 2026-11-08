@@ -25,7 +25,11 @@ Cada género define su tempo, tonalidad, progresión de acordes, instrumentos y 
 - **Voz narrada:** usa la voz en español del navegador (Web Speech API).
 - **Letras:** generador local con versos rimados por tema; no necesita internet.
 
-## Voz realista con IA abierta (opcional)
+## Cantante de IA (voz real)
+
+En la página publicada (no dentro de visores incrustados) el botón **Cantar con IA** envía la letra y el estilo del género a **ACE-Step** en Hugging Face, usando `@gradio/client`. Es gratis, con fila de espera y un límite diario; con un token gratuito de Hugging Face (Opciones avanzadas) el límite sube. Puedes cambiar el espacio de Hugging Face si quieres usar otra copia del modelo.
+
+## Voz realista con IA abierta en tu equipo (opcional)
 
 El botón **Copiar letra y estilo** prepara el texto con etiquetas (`[verse]`, `[chorus]`, `[bridge]`) y una descripción del estilo del género. Puedes pegarlo en modelos abiertos de generación de canciones que cantan en español, por ejemplo:
 
