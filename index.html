@@ -178,8 +178,12 @@ section.about code{font-family:var(--f-mono);font-size:12.5px}
 
       <section class="step" aria-labelledby="s3">
         <h2 id="s3"><span class="n">3</span>Voz</h2>
-        <p class="hint">El cantante sintético canta cada sílaba con una melodía propia. La voz narrada usa la voz en español de tu navegador.</p>
+        <p class="hint">La voz clara usa las voces en español de tu dispositivo y dice cada verso a tiempo con el ritmo. El canto sintético entona una melodía, pero no se entienden las palabras.</p>
         <div class="voices" id="voices"></div>
+        <div class="field" id="vozBox" style="margin-top:12px;max-width:420px">
+          <label for="vozSel">Voz en español</label>
+          <select id="vozSel"></select>
+        </div>
         <div class="tempo">
           <label for="tempo" class="hint" style="margin:0">Tempo</label>
           <input id="tempo" type="range" min="80" max="120" value="100" step="1">
@@ -726,12 +730,23 @@ function tick(){
   }
   if(P.playing&&ctx.currentTime>P.t0+song.duration) stop();
 }
-let esVoice=null;
+let esVoice=null, esVoices=[];
+function voiceScore(v){let s=0;if(/natural|neural|online/i.test(v.name))s+=50;if(/google/i.test(v.name))s+=30;if(/^es[-_](MX|US|CO|419)/i.test(v.lang))s+=10;if(/^es/i.test(v.lang))s+=5;return s;}
+function loadVoices(){
+  try{esVoices=speechSynthesis.getVoices().filter(v=>/^es/i.test(v.lang)).sort((a,b)=>voiceScore(b)-voiceScore(a));}catch(_){esVoices=[];}
+  const sel=document.querySelector('#vozSel'); if(!sel) return; const prev=sel.value; sel.innerHTML='';
+  if(!esVoices.length){const o=document.createElement('option');o.textContent='Voz en español del sistema';o.value='';sel.appendChild(o);esVoice=null;return;}
+  esVoices.forEach(v=>{const o=document.createElement('option');o.value=v.name;o.textContent=v.name.replace(/^Microsoft |^Google /,'')+' ('+v.lang+')';sel.appendChild(o);});
+  if(prev&&esVoices.some(v=>v.name===prev))sel.value=prev; esVoice=esVoices.find(v=>v.name===sel.value)||esVoices[0];
+}
+function duck(on){const e=P.eng;if(!e||!actx)return;const t=actx.currentTime;[['music',.75],['drums',.9],['lead',.6]].forEach(([k,v])=>{try{e[k].gain.setTargetAtTime(on?v*.45:v,t,.08);}catch(_){}});}
 function speak(text,seconds){
   try{
-    if(!esVoice){const vs=speechSynthesis.getVoices();esVoice=vs.find(v=>/^es[-_](MX|US|CO|419)/i.test(v.lang))||vs.find(v=>/^es/i.test(v.lang))||null;}
-    const u=new SpeechSynthesisUtterance(text.replace(/[¡!]/g,''));u.lang=esVoice?esVoice.lang:'es-ES';if(esVoice)u.voice=esVoice;
-    u.rate=Math.max(.8,Math.min(1.5,(text.length/14)/Math.max(seconds*.9,1)));u.pitch=1.1;speechSynthesis.speak(u);
+    if(!esVoice)loadVoices();
+    const u=new SpeechSynthesisUtterance(text.replace(/[¡!¿?]/g,''));u.lang=esVoice?esVoice.lang:'es-ES';if(esVoice)u.voice=esVoice;
+    u.rate=Math.max(.85,Math.min(1.35,(text.length/14)/Math.max(seconds*.85,1)));u.pitch=1;u.volume=1;
+    u.onstart=()=>duck(true); u.onend=()=>duck(false);
+    speechSynthesis.cancel(); speechSynthesis.speak(u);
   }catch(_){}
 }
 
@@ -759,9 +774,9 @@ function wavBlob(buf){
 
 /* ---------- interfaz ---------- */
 const $=s=>document.querySelector(s);
-const state={genre:GENRES[0],tema:'fiesta',voice:'aguda',tempo:1,seed:1,title:''};
-const VOICES=[{id:'aguda',n:'Canto · voz aguda',d:'Cantante sintético, registro alto'},{id:'grave',n:'Canto · voz grave',d:'Cantante sintético, registro bajo'},
-  {id:'narrada',n:'Voz narrada',d:'La voz en español de tu navegador'},{id:'inst',n:'Solo instrumental',d:'Pista para cantar tú'}];
+const state={genre:GENRES[0],tema:'fiesta',voice:'narrada',tempo:1,seed:1,title:''};
+const VOICES=[{id:'narrada',n:'Voz clara',d:'Se entienden las palabras'},{id:'aguda',n:'Canto sintético agudo',d:'Melodía robótica, sin palabras claras'},
+  {id:'grave',n:'Canto sintético grave',d:'Melodía robótica, sin palabras claras'},{id:'inst',n:'Solo instrumental',d:'Pista para cantar tú'}];
 const ICON_PLAY='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.5v15l13-7.5z" fill="currentColor"/></svg>';
 const ICON_STOP='<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor"/></svg>';
 function setPlayIcons(){['#play','#play2'].forEach(id=>{const b=$(id);b.innerHTML=P.playing?ICON_STOP:ICON_PLAY;b.setAttribute('aria-label',P.playing?'Detener':'Reproducir');});}
@@ -787,6 +802,7 @@ function renderVoices(){
   VOICES.forEach(v=>{const b=document.createElement('button');b.type='button';b.className='v';b.setAttribute('aria-pressed',v.id===state.voice);
     b.innerHTML='<b></b><span></span>';b.querySelector('b').textContent=v.n;b.querySelector('span').textContent=v.d;
     b.addEventListener('click',()=>{state.voice=v.id;renderVoices();if(P.playing){stop();start();}});box.appendChild(b);});
+  const vb=document.querySelector('#vozBox'); if(vb) vb.hidden=state.voice!=='narrada';
 }
 function renderSections(song){
   const box=$('#secs'),track=$('#track');box.innerHTML='';track.querySelectorAll('.mk').forEach(m=>m.remove());
@@ -845,13 +861,14 @@ function init(){
     try{navigator.clipboard.writeText(txt).then(()=>toast('Copiado: letra con etiquetas y estilo del género.'),fallback);}catch(_){fallback();}});
   let embedded=true; try{embedded=window.self!==window.top;}catch(_){embedded=true;}
   if(!embedded){const b=$('#btnWav');b.hidden=false;b.addEventListener('click',async()=>{
-    if(state.voice==='narrada')toast('La voz narrada no se puede grabar; se exporta con el cantante sintético.');
+    if(state.voice==='narrada')toast('La voz clara del navegador no se puede grabar en el archivo; el WAV lleva el canto sintético.');
     b.disabled=true;b.textContent='Renderizando…';
     try{const v=state.voice;if(v==='narrada')state.voice='aguda';const {buf}=await renderWav();state.voice=v;const url=URL.createObjectURL(wavBlob(buf));
       const a=document.createElement('a');a.href=url;a.download=(state.title||'cancion').replace(/[^\wáéíóúñ ]+/gi,'').trim().replace(/\s+/g,'-')+'-'+state.genre.id+'.wav';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),5000);toast('WAV listo.');}
     catch(err){toast('No se pudo exportar: '+err.message);}
     b.disabled=false;b.textContent='Descargar WAV';});}
-  try{speechSynthesis.getVoices();speechSynthesis.onvoiceschanged=()=>{esVoice=null;};}catch(_){}
+  try{loadVoices();speechSynthesis.onvoiceschanged=loadVoices;}catch(_){}
+  $('#vozSel').addEventListener('change',e=>{esVoice=esVoices.find(v=>v.name===e.target.value)||null;try{speechSynthesis.cancel();const u=new SpeechSynthesisUtterance('Hola, así suena mi voz');if(esVoice){u.voice=esVoice;u.lang=esVoice.lang;}speechSynthesis.speak(u);}catch(_){}});
   renderGenres(); renderVoices(); setPlayIcons();
   $('#idea').value=''; generar(false); draw();
 }
